@@ -1,0 +1,241 @@
+### Title: "Practical Machine Learning - Course Project"
+### Author: "Uma Balakrishnan"
+### Date: "January 13, 2016"
+
+## Question
+
+6 participants were participated in a barbell lifting in 5 different ways. 
+
+Class A: Exactly according to the specification   
+Class B: Throwing the elbows to the front    
+Class C: Lifting the dumbbell only halfway    
+Class D: Lowering the dumbbell only halfway    
+Class E: Throwing the hips to the front     
+
+Class A perform barbell lifts correctly, while Classes B-E perform incorrectly.
+
+By processing data gathered from accelerometers on the belt, forearm, arm, and dumbell of 6 participants in a machine learning algorithm, the question is can the appropriate activity quality (class A-E) can be predicted on testing data?
+
+## Input Data:
+
+Initialize library
+
+```{r, echo=TRUE, warning=FALSE, message=FALSE}
+library(AppliedPredictiveModeling)
+library(caret)
+library(randomForest)
+library(rattle)
+library(rpart.plot)
+library(kernlab)
+```
+
+Downloading data from source and reading data. Treating empty values as NA.
+
+```{r, echo=TRUE, cache=TRUE}
+if(!file.exists('pml-training.csv')){
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                destfile='pml-training.csv') }
+if(file.exists('pml-training.csv')){
+  training <- read.csv('pml-training.csv', na.strings = c(""," ","NA"), header = TRUE) }
+str(training)
+```
+
+```{r, echo=TRUE, cache=TRUE}
+if(!file.exists('pml-testing.csv')){
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                destfile='pml-testing.csv') }
+if(file.exists('pml-testing.csv')){
+  testing <- read.csv('pml-testing.csv', na.strings = c(""," ","NA"), header = TRUE) }
+str(testing)
+```
+
+## Features
+
+Finding the columns not matching between training and testing sets
+
+```{r, echo=TRUE, cache=TRUE}
+ind <- which(is.na(pmatch(names(training), names(testing))))
+names(training)[ind]
+names(testing)[ind]
+```
+Perform machine learning algorithm to column "classe" in training set to predict  testing data.
+
+For machine learning algorithm to predict effectively, drop the columns which has lot of NA's and also drop first 7 columns which consist of personal information regarding participants. 
+
+```{r, echo=TRUE, cache=TRUE}
+na_count <-sapply(training, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+nonzeroind <- which(na_count == 0)
+nonzeroind <- nonzeroind[8:length(nonzeroind)]
+```
+
+Following columns are considered in the training set for perdiction algorithm.
+```{r, echo=TRUE, cache=TRUE}
+training <- as.data.frame(training[,nonzeroind], drop = FALSE)
+names(training)
+```
+
+Corresponding columns in the testing set.
+```{r, echo=TRUE, cache=TRUE}
+testing <- as.data.frame(testing[,nonzeroind], drop = FALSE)
+names(testing)
+```
+
+Check for covariates that have virtually no variability
+```{r, echo=TRUE, cache=TRUE}
+nsv <- nearZeroVar(training, saveMetrics = TRUE)
+nsv
+```
+Non zero variance is FALSE for all columns considered in the training set. Hence there is no need to eliminate any covariates due to lack of variablity.
+
+## Machine Learning Algorithm
+
+Training set has 19,622 observations (large in size). It will be time consuming to perform algorithm on large data set. 
+
+**Step 1.** For classe variable, divide the given training set into 4 almost equal parts (part1, part2, part3, part4).     
+**Step 2.** Split each part into a training (60%) (part1.train, part2.train, part3.train, part4.train) and testing set (40%) (part1.test, part2.test, part3.test, part4.test).   
+**Step 3.** Construct regression model using train on each training set (part1.train, part2.train, part3.train, part4.train) by defining method and cross validation.      
+**Step 4.** Predict respective testing set (part1.test, part2.test, part3.test, part4.test) and calculate the accuracy of prediction.       
+**Step 5.** Alter the method used for regression analysis, based on the accuracy for predicting testing sets.       
+**Step 6.** After achieving desired accuracy, predcit the given testing set (20 Quiz prediction) using all four regression models and compare the results of prediction and accuracy.    
+
+**Step 1.**
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+partition <- createDataPartition(y = training$classe, p = 0.25, list = FALSE)
+part1 <- training[partition,]
+rest<- training[-partition,]
+set.seed(2121)
+partition <- createDataPartition(y = rest$classe, p = 0.33, list = FALSE)
+part2 <- rest[partition,]
+rest <- rest[-partition,]
+set.seed(2121)
+partition <- createDataPartition(y = rest$classe, p = 0.5, list = FALSE)
+part3 <- rest[partition,]
+part4 <- rest[-partition,]
+```
+
+**Step 2.**
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+inTrain <- createDataPartition(y = part1$classe, p = 0.6, list = FALSE)
+part1.train <- part1[inTrain,]
+part1.test <- part1[-inTrain,]
+set.seed(2121)
+inTrain <- createDataPartition(y = part2$classe, p = 0.6, list = FALSE)
+part2.train <- part2[inTrain,]
+part2.test <- part2[-inTrain,]
+set.seed(2121)
+inTrain <- createDataPartition(y = part3$classe, p = 0.6, list = FALSE)
+part3.train <- part3[inTrain,]
+part3.test <- part3[-inTrain,]
+set.seed(2121)
+inTrain <- createDataPartition(y = part4$classe, p = 0.6, list = FALSE)
+part4.train <- part4[inTrain,]
+part4.test <- part4[-inTrain,]
+```
+
+**Step 3.**
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+part1.modFit <- train(part1.train$classe ~., method = "rpart", data = part1.train, 
+                      trControl = trainControl(method = "cv", number = 3))
+fancyRpartPlot(part1.modFit$finalModel)
+part1.pred <- predict(part1.modFit, part1.test)
+confusionMatrix(part1.pred,part1.test$classe)$overall['Accuracy']
+```
+Accuracy is just 37% using method = "rpart" and cross validation. Accuracy is pretty low. We can try another method called randomForest, method = "rf".
+
+**Step 4.**
+
+Prediction of given testing set (20 Quiz Prediction) using part1.train
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+part1.modFit <- train(part1.train$classe ~., method = "rf", data = part1.train, 
+                      trControl = trainControl(method = "cv", number = 3))
+part1.pred <- predict(part1.modFit, part1.test)
+part1.accuracy <- confusionMatrix(part1.pred,part1.test$classe)$overall['Accuracy']
+part1.accuracy
+pred1 <- predict(part1.modFit, newdata = testing)
+pred1
+```
+
+Prediction of given testing set (20 Quiz Prediction) using part2.train
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+part2.modFit <- train(part2.train$classe ~., method = "rf", data = part2.train, 
+                      trControl = trainControl(method = "cv", number = 3))
+part2.pred <- predict(part2.modFit, part2.test)
+part2.accuracy <- confusionMatrix(part2.pred,part2.test$classe)$overall['Accuracy']
+part2.accuracy
+pred2 <- predict(part2.modFit, newdata = testing)
+pred2
+```
+
+Prediction of given testing set (20 Quiz Prediction) using part3.train
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+part3.modFit <- train(part3.train$classe ~., method = "rf", data = part3.train, 
+                      trControl = trainControl(method = "cv", number = 3))
+part3.pred <- predict(part3.modFit, part3.test)
+part3.accuracy <- confusionMatrix(part3.pred,part3.test$classe)$overall['Accuracy']
+part3.accuracy
+pred3 <- predict(part3.modFit, newdata = testing)
+pred3
+```
+
+Prediction of given testing set (20 Quiz Prediction) using part4.train
+
+```{r, echo=TRUE, cache=TRUE}
+set.seed(2121)
+part4.modFit <- train(part4.train$classe ~., method = "rf", data = part4.train, 
+                      trControl = trainControl(method = "cv", number = 3))
+part4.pred <- predict(part4.modFit, part4.test)
+part4.accuracy <- confusionMatrix(part4.pred,part4.test$classe)$overall['Accuracy']
+part4.accuracy
+pred4 <- predict(part4.modFit, newdata = testing)
+pred4
+```
+
+Comparing predictions from each part of the training data set.
+
+```{r, echo=TRUE, cache=TRUE}
+pred <- data.frame(pred1,pred2,pred3,pred4)
+names(pred) <- c("Data.part1", "Data.part2", "Data.part3", "Data.part4")
+pred
+```
+
+Calculate accuracy of prediction given by each part of training set and calculate "out of sample error"
+```{r, echo=TRUE, cache=TRUE}
+Accuracy <- data.frame(part1.accuracy, part2.accuracy, part3.accuracy, part4.accuracy)
+Accuracy <- round(Accuracy * 100)
+OutofSampleError <- 100 - Accuracy
+Accuracy <- paste(Accuracy,'%',sep = "")
+```
+
+Accuracy of prediction by each part of training data set is:
+```{r, echo=TRUE, cache=TRUE}
+Accuracy
+```
+
+## Out of Sample Error
+
+Out of sample error for each part of training data set is:
+
+```{r, echo=TRUE, cache=TRUE}
+OutofSampleError <- paste(OutofSampleError,'%',sep = "")
+OutofSampleError
+```
+
+## Conclusion
+
+Prediction for 20 test data is 
+```{r, echo=TRUE}
+pred1
+```
